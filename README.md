@@ -6,9 +6,9 @@ This project requires Python 3.11.3 or newer.
 
 1. Clone the repository by running the following command in your terminal:
     ```
-    git clone <LINK_TO_YOUR_REPOSITORY>
+    git clone https://github.com/Aziiz0/googleDriveTranslate-web-ui.git
     ```
-    Replace `<LINK_TO_YOUR_REPOSITORY>` with the actual link to your repository.
+    Replace `https://github.com/Aziiz0/googleDriveTranslate-web-ui.git` with the actual link to your repository.
 
 2. Navigate into the project directory:
     ```
