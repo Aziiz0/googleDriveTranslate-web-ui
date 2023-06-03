@@ -8,8 +8,7 @@ This project requires Python 3.11.3 or newer.
     ```
     git clone https://github.com/Aziiz0/googleDriveTranslate-web-ui.git
     ```
-    Replace `https://github.com/Aziiz0/googleDriveTranslate-web-ui.git` with the actual link to your repository.
-
+    
 2. Navigate into the project directory:
     ```
     cd googleDriveTranslate-web-ui
