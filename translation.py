@@ -1,12 +1,10 @@
 import re
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 from string import punctuation
 from pptx.util import Pt
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 import os
 from pptx import Presentation
-import win32com.client as client
-import win32com.client.gencache as gencache
 from docx import Document
 import urllib.parse
 import io
@@ -14,18 +12,51 @@ from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.http import MediaFileUpload
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+import time
+import win32com.client
+import pythoncom
 
 start_translating = False
 
 # Initialize translator
-translator = Translator()
+#translator = Translator()
 
-SCOPES = ['https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'googleKey.json'
+# Set up OAuth 2.0 credentials
+client_id = '436858784684-oef4d0qhfegmn7e0fkikbes0vemk6l01.apps.googleusercontent.com'
+client_secret = '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'
+scopes = ['https://www.googleapis.com/auth/drive']
+redirect_uri = 'http://localhost:58936/'
 
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-drive_service = build('drive', 'v3', credentials=credentials)
+# Set up token file
+token_file = 'token.json'
+
+# Authenticate and authorize the user
+flow = InstalledAppFlow.from_client_secrets_file(
+    client_secrets_file=os.path.abspath('client_secrets.json'),
+    scopes=scopes,
+    redirect_uri=redirect_uri
+)
+auth_url, _ = flow.authorization_url(prompt='consent')
+
+# Print the authorization URL
+print('Please visit this URL to authorize the application:', auth_url)
+
+# Once authorized, enter the authorization code
+authorization_code = input('Enter the authorization code: ')
+
+# Fetch the access token
+flow.fetch_token(
+    authorization_response=authorization_code,
+)
+
+# Save the credentials to a file
+credentials_json = flow.credentials.to_json()
+with open(token_file, 'w') as token:
+    token.write(credentials_json)
+
+# Build the Google Drive API service
+drive_service = build('drive', 'v3', credentials=flow.credentials)
 
 def remove_illegal_chars(filename):
     illegal_chars = r"[']"  # Define the pattern for illegal characters (single quote in this case)
@@ -34,18 +65,40 @@ def remove_illegal_chars(filename):
 def is_punctuation(text):
     return all(char in punctuation for char in text)
 
-def translate_to_english(text):
-    if len(text.strip()) < 2 or is_punctuation(text.strip()):
-        return text  # Return the original text if it has less than 2 non-whitespace characters or consists only of punctuation
+def split_text_into_chunks(text, chunk_size=5000):
+    """
+    Function to split the text into smaller chunks
+    """
+    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
 
-    try:
-        translation = translator.translate(text, src="zh-CN", dest="en")  # Translate the text from Chinese to English
-        translated_text = translation.text
-        #translated_text = translated_text.replace("'", "")  # remove apostrophes
-        return translated_text
-    except Exception as e:
-        print(f"Failed to translate text: {text}. Error: {str(e)}")
-        return text  # Return the original text if translation fails
+def translate_text(text):
+    """
+    Function to translate the text
+    """
+    text = str(text)  # Ensure the text is a string
+
+    # Return the original text if it has less than 2 non-whitespace characters 
+    # or consists only of punctuation or if it is a digit
+    if len(text.strip()) < 2 or is_punctuation(text.strip()) or text.isdigit():
+        return text
+
+    translator = GoogleTranslator(source='zh-CN', target='en')  # Create a translator object
+    chunks = split_text_into_chunks(text)  # Split the text into chunks
+    translated_text = ""  # Placeholder for the translated text
+
+    for chunk in chunks:
+        while True:
+            try:
+                translated_chunk = translator.translate(chunk)  # Translate the chunk
+                # print(f"Translated chunk: {translated_chunk}")
+                translated_text += translated_chunk  # Add the translated chunk to the translated text
+                break  # Break the while loop if the translation was successful
+            except Exception as e:
+                print(f"Failed to translate text-english: {chunk}. Error: {str(e)}")
+                time.sleep(1)  # Wait for 1 second before retrying
+
+    #translated_text = translated_text.replace("'", "")  # remove apostrophes
+    return translated_text
 
 def translate_text_frame(text_frame):
     for paragraph in text_frame.paragraphs:
@@ -53,10 +106,10 @@ def translate_text_frame(text_frame):
             if not run.text:
                 continue  # Skip empty runs
             try:
-                translated = translate_to_english(run.text)  # Translate the text to English
+                translated = translate_text(run.text)  # Translate the text to English
                 run.text = translated  # Update the text with the translated version
             except Exception as e:
-                print(f"Failed to translate text: {run.text}. Error: {str(e)}")
+                print(f"Failed to translate text-frame: {run.text}. Error: {str(e)}")
                 continue
 
 def adjust_text_size(shape):
@@ -106,7 +159,7 @@ def translate_pptx(pptx_path):
     filename_without_ext = os.path.splitext(filename)[0]
 
     try:
-        translated_filename_without_ext = translate_to_english(filename_without_ext)
+        translated_filename_without_ext = translate_text(filename_without_ext)
     except Exception as e:
         print(f"Failed to translate filename: {filename_without_ext}. Error: {str(e)}")
         translated_filename_without_ext = filename_without_ext
@@ -119,20 +172,29 @@ def translate_pptx(pptx_path):
     return translated_pptx_path
 
 def convert_doc_to_docx(doc_path):
-    doc_path = os.path.abspath(doc_path)  # Use absolute path
+    # Ensure the path is absolute
+    doc_path = os.path.abspath(doc_path)
+
+    # Create the new path by replacing the extension
+    new_file_abs = doc_path.replace(".doc", ".docx")
 
     try:
-        word = gencache.EnsureDispatch('Word.Application')  # Create an instance of Microsoft Word
-        doc = word.Documents.Open(doc_path)  # Open the .doc file
-        doc.Activate()
+        # Initialize the Word.Application
+        word = win32com.client.Dispatch('Word.Application',pythoncom.CoInitialize())
 
-        new_file_abs = os.path.abspath(doc_path)
-        new_file_abs = re.sub(r'\.\w+$', '.docx', new_file_abs)  # Rename the file with .docx extension
+        # Set the application to be invisible
+        word.Visible = False
 
-        word.ActiveDocument.SaveAs(
-            new_file_abs, FileFormat=client.wdFormatXMLDocument
-        )  # Save the document in .docx format
-        doc.Close(False)
+        # Open the document
+        doc = word.Documents.Open(doc_path)
+
+        # Save as a .docx file
+        doc.SaveAs(new_file_abs, FileFormat=16)  # 16 represents the wdFormatDocx constant
+
+        # Close the document
+        doc.Close()
+
+        # Quit Word
         word.Quit()
     except Exception as e:
         print(f"Failed to convert file: {doc_path}. Error: {str(e)}")
@@ -149,7 +211,7 @@ def translate_docx(doc_path):
             if not run.text:
                 continue  # Skip empty runs
             try:
-                translated = translate_to_english(run.text)  # Translate the text to English
+                translated = translate_text(run.text)  # Translate the text to English
                 run.text = translated  # Update the text with the translated version
             except Exception as e:
                 print(f"Failed to translate text: {run.text}. Error: {str(e)}")
@@ -164,7 +226,7 @@ def translate_docx(doc_path):
                         if not run.text:
                             continue  # Skip empty runs
                         try:
-                            translated = translate_to_english(run.text)  # Translate the text to English
+                            translated = translate_text(run.text)  # Translate the text to English
                             run.text = translated  # Update the text with the translated version
                         except Exception as e:
                             print(f"Failed to translate text: {run.text}. Error: {str(e)}")
@@ -174,7 +236,7 @@ def translate_docx(doc_path):
     filename_without_ext = os.path.splitext(filename)[0]
 
     try:
-        translated_filename_without_ext = translate_to_english(filename_without_ext)
+        translated_filename_without_ext = translate_text(filename_without_ext)
     except Exception as e:
         print(f"Failed to translate filename: {filename_without_ext}. Error: {str(e)}")
         translated_filename_without_ext = filename_without_ext
@@ -278,19 +340,6 @@ def upload_file(file_path, parent_folder_id, override=True):
     file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
     print(f"File uploaded with ID: {file.get('id')}")
 
-def translate_file_name(file_name):
-    file_name_without_ext, ext = os.path.splitext(file_name)
-
-    try:
-        translated_file_name_without_ext = translate_to_english(file_name_without_ext)
-    except Exception as e:
-        print(f"Failed to translate filename: {file_name_without_ext}. Error: {str(e)}")
-        translated_file_name_without_ext = file_name_without_ext
-
-    translated_file_name_without_ext = remove_illegal_chars(translated_file_name_without_ext)
-    translated_file_name = translated_file_name_without_ext + ext
-    return translated_file_name
-
 def copy_and_rename_file(file_id, translated_root_id, translated_file_name, override=False):
     # Make a copy of the original file in the new directory
     file_metadata = {
@@ -317,72 +366,82 @@ def copy_and_rename_file(file_id, translated_root_id, translated_file_name, over
         body=file_metadata,
         fields='id'
     ).execute()
-    print(f"File copied and renamed with ID: {copied_file.get('id')}")
+    print(f"File {translated_file_name} copied and renamed with ID: {copied_file.get('id')}")
 
-def process_directory(directory_id, translated_root_id, start_file=None, convert_docs=False, override_docs=False, convert_slides=False, override_slides=False, copy_translate_others=False, override_others=False):
+def translate_file_name(file_name):
+    file_name_without_ext, ext = os.path.splitext(file_name)
+
+    try:
+        translated_file_name_without_ext = translate_text(file_name_without_ext)
+    except Exception as e:
+        print(f"Failed to translate filename: {file_name_without_ext}. Error: {str(e)}")
+        translated_file_name_without_ext = file_name_without_ext
+
+    translated_file_name_without_ext = remove_illegal_chars(translated_file_name_without_ext)
+    translated_file_name = translated_file_name_without_ext + ext
+    return translated_file_name
+
+def process_file(item, local_directory_path, translated_root_id, convert_docs, override_docs, convert_slides, override_slides, copy_translate_others, override_others):
+    file_name = item['name']
+    file_id = item['id']
+
+    # Query if the translated file already exists in the translated directory
+    translated_file_name = translate_file_name(file_name)
+
+    # URL encode the filename
+    encoded_filename = urllib.parse.quote(translated_file_name)
+    response = drive_service.files().list(
+        q=f"name='{encoded_filename}' and '{translated_root_id}' in parents",
+        fields='files(id, name)').execute()
+    if response.get('files'):
+        print(f"File '{translated_file_name}' already exists in parent folder ID '{translated_root_id}'")
+        return  # Skip this file if the translated version already exists
+
+    # Now download and process the file only if the translated version doesn't exist
+    if item['mimeType'] in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] and convert_docs:
+        file_path = download_file(file_id, local_directory_path, file_name, translated_root_id, False)
+        if item['mimeType'] == 'application/msword':  # If it is a .doc file
+            file_path = convert_doc_to_docx(file_path)
+        print(f"Translating file: {translated_file_name}")
+        translated_file_path = translate_docx(file_path)
+        upload_file(translated_file_path, translated_root_id, override_docs)
+        os.remove(translated_file_path)  # Delete the file after uploading
+    elif item['mimeType'] == 'application/vnd.openxmlformats-officedocument.presentationml.presentation' and convert_slides:
+        file_path = download_file(file_id, local_directory_path, file_name, translated_root_id, False)
+        print(f"Translating file: {translated_file_name}")
+        translated_file_path = translate_pptx(file_path)
+        upload_file(translated_file_path, translated_root_id, override_slides)
+        os.remove(translated_file_path)  # Delete the file after uploading
+    elif copy_translate_others:
+        # If the file is not a Word document, copy and rename it without translating the content
+        copy_and_rename_file(file_id, translated_root_id, translated_file_name, override_others)
+
+def process_directory(directory_id, translated_root_id, start_file=None, convert_docs=True, override_docs=True, convert_slides=True, override_slides=True, copy_translate_others=True, override_others=True, process_folders=True):
     results = drive_service.files().list(
-        q=f"'{directory_id}' in parents and mimeType='application/vnd.google-apps.folder'",
-        fields="files(id, name)").execute()
-
-    items = results.get('files', [])
-
-    for item in items:
-        subdirectory_id = item['id']
-        file_name = translate_to_english(item['name'])
-
-        # If start_translating is False and the current item's name matches start_file, set start_translating to True
-        global start_translating
-        if start_file and not start_translating and file_name == start_file:
-            start_translating = True
-
-        translated_subdirectory_id, is_new_folder = create_folder(file_name, translated_root_id)
-        if is_new_folder:  # Only process the subdirectory if it is newly created
-            print(f"Processing subdirectory '{item['name']}' with ID '{subdirectory_id}'")
-            process_directory(subdirectory_id, translated_subdirectory_id, start_file, convert_docs, override_docs, convert_slides, override_slides, copy_translate_others, override_others)
-        else:
-            print(f"Processing subdirectory '{item['name']}' with ID '{subdirectory_id}'")
-            process_directory(subdirectory_id, translated_subdirectory_id, start_file, convert_docs, override_docs, convert_slides, override_slides, copy_translate_others, override_others)
-
-    results = drive_service.files().list(
-        q=f"'{directory_id}' in parents and mimeType!='application/vnd.google-apps.folder'",
+        q=f"'{directory_id}' in parents",
         fields="files(id, name, mimeType)").execute()
+
     items = results.get('files', [])
 
     local_directory_path = os.path.join('./temp_drive_files', directory_id)
+
     for item in items:
-        # Skip processing this item if start_translating is False
-        if not start_translating:
-            continue
+        if item['mimeType'] == 'application/vnd.google-apps.folder':
+            subdirectory_id = item['id']
+            file_name = translate_text(item['name'])
 
-        file_name = item['name']
-        file_id = item['id']
+            # If start_translating is False and (the current item's name matches start_file or start_file is None), set start_translating to True
+            global start_translating
+            if not start_translating and (not start_file or file_name == start_file):
+                start_translating = True
 
-        # Query if the translated file already exists in the translated directory
-        translated_file_name = translate_file_name(file_name)
+            translated_subdirectory_id, is_new_folder = create_folder(file_name, translated_root_id)
+            if is_new_folder or process_folders:  # Only process the subdirectory if it is newly created
+                print(f"Processing subdirectory '{item['name']}' with ID '{subdirectory_id}'")
+                process_directory(subdirectory_id, translated_subdirectory_id, start_file, convert_docs, override_docs, convert_slides, override_slides, copy_translate_others, override_others)
+        else:
+            # Skip processing this item if start_translating is False
+            if not start_translating:
+                continue
 
-        # URL encode the filename
-        encoded_filename = urllib.parse.quote(translated_file_name)
-        response = drive_service.files().list(
-            q=f"name='{encoded_filename}' and '{translated_root_id}' in parents",
-            fields='files(id, name)').execute()
-        if response.get('files'):
-            print(f"File '{translated_file_name}' already exists in parent folder ID '{translated_root_id}'")
-            continue  # Skip this file if the translated version already exists
-
-        # Now download and process the file only if the translated version doesn't exist
-        if item['mimeType'] in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] and convert_docs:
-            file_path = download_file(file_id, local_directory_path, file_name, translated_root_id, False)
-            if item['mimeType'] == 'application/msword':  # If it is a .doc file
-                file_path = convert_doc_to_docx(file_path)
-            translated_file_path = translate_docx(file_path)
-            upload_file(translated_file_path, translated_root_id, override_docs)
-            os.remove(translated_file_path)  # Delete the file after uploading
-        elif item['mimeType'] == 'application/vnd.openxmlformats-officedocument.presentationml.presentation' and convert_slides:
-            file_path = download_file(file_id, local_directory_path, file_name, translated_root_id, False)
-            translated_file_path = translate_pptx(file_path)
-            upload_file(translated_file_path, translated_root_id, override_slides)
-            os.remove(translated_file_path)  # Delete the file after uploading
-        elif copy_translate_others:
-            # If the file is not a Word document, copy and rename it without translating the content
-            translated_file_name = translate_file_name(file_name)
-            copy_and_rename_file(file_id, translated_root_id, translated_file_name, override_others)
+            process_file(item, local_directory_path, translated_root_id, convert_docs, override_docs, convert_slides, override_slides, copy_translate_others, override_others)

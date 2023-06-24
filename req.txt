@@ -1,0 +1,7 @@
+googletrans==4.0.0rc1
+python-pptx
+python-docx
+google-api-python-client
+Flask
+comtypes
+pywin32

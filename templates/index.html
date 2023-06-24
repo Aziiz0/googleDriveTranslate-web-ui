@@ -1,21 +1,5 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Translation App</title>
-</head>
-<body>
-    <h1>Translation App</h1>
-	<form method="POST">
-		Source directory ID: <input type="text" name="source_dir"><br>
-		Destination directory ID: <input type="text" name="dest_dir"><br>
-		Starting translating File: <input type="text" name="start_file"><br>
-		<input type="checkbox" name="convert_docs" value="yes"> Convert all Docs<br>
-		<input type="checkbox" name="override_docs" value="yes"> Delete existing converted Docs<br>
-		<input type="checkbox" name="convert_slides" value="yes"> Convert all Slides<br>
-		<input type="checkbox" name="override_slides" value="yes"> Delete existing converted Slides<br>
-		<input type="checkbox" name="copy_translate_others" value="yes"> Copy and translate everything else<br>
-		<input type="checkbox" name="override_others" value="yes"> Delete existing converted other files<br>
-		<input type="submit" value="Submit">
-	</form>
-</body>
-</html>
+<form method="POST">
+    <label for="source_dir">Starting Directory:</label><br>
+    <input type="text" id="source_dir" name="source_dir"><br>
+    <input type="submit" value="Submit">
+</form>

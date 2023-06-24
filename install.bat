@@ -13,8 +13,8 @@ echo Creating a virtual environment with Python version %PYTHON_VERSION%
 echo Activating the virtual environment
 call env\Scripts\activate
 
-echo Installing dependencies from requirements.txt
-pip install -r requirements.txt
+echo Installing dependencies from req.txt
+pip install -r req.txt
 
 echo Done.
 pause

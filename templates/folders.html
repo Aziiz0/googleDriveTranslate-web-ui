@@ -1,0 +1,10 @@
+<form method="POST">
+    {% for folder in folders %}
+    <input type="checkbox" name="folder_id" value="{{ folder[0] }}"> 
+    <input type="hidden" name="folder_name" value="{{ folder[1] }}"> {{ folder[1] }}<br>
+    {% endfor %}    
+    <br>
+    <label for="dest_dir">Destination Directory:</label><br>
+    <input type="text" id="dest_dir" name="dest_dir" value="{{ root_dir }}"><br><br>
+    <input type="submit" value="Translate">
+</form>
